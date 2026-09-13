@@ -1,15 +1,42 @@
 import os
 from dotenv import load_dotenv
-from agents import Agent, Runner, SQLiteSession
+from agents import Agent, Runner, SQLiteSession, function_tool
 
 load_dotenv()
 
 session = SQLiteSession("career_agent_session")
 
+@function_tool
+def get_career_roadmap(career: str) -> str:
+    """Provides a basic learning roadmap for a specific career."""
+
+    print("🔥")
+
+    if career.lower() == "ai engineer":
+        return """
+AI Engineer Roadmap:
+
+1. Python
+2. Data Structures & Algorithms
+3. Mathematics for AI/ML
+4. NumPy, Pandas and Matplotlib
+5. Machine Learning
+6. Deep Learning
+7. Transformers and LLMs
+8. APIs and FastAPI
+9. Docker and deployment
+10. AI projects and portfolio
+"""
+
+    return f"No specific roadmap is available yet for {career}."
 agent = Agent(
     name="Career Agent",
     instructions="""
 You are an AI Career Assistant for students.
+
+When a user asks for a career roadmap,if needed use the
+get_career_roadmap tool to obtain the roadmap
+instead of creating the roadmap yourself.
 
 Your job is to help users with:
 - Career planning
@@ -41,6 +68,7 @@ interviews, and projects."
 
 Keep your answers practical and easy to understand.
 """,
+    tools=[get_career_roadmap],
 )
 
 
