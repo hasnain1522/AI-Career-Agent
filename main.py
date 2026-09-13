@@ -1,8 +1,10 @@
 import os
 from dotenv import load_dotenv
-from agents import Agent, Runner
+from agents import Agent, Runner, SQLiteSession
 
 load_dotenv()
+
+session = SQLiteSession("career_agent_session")
 
 agent = Agent(
     name="Career Agent",
@@ -49,6 +51,6 @@ while True:
         print("Career Agent: Goodbye! Good luck with your career journey.")
         break
 
-    result = Runner.run_sync(agent, user_input)
+    result = Runner.run_sync(agent, user_input, session=session)
 
     print("\nCareer Agent:", result.final_output)
