@@ -154,11 +154,15 @@ def chat(request: ChatRequest):
 
 
     except Exception as error:
-
         print("ERROR:", error)
 
+        error_message = str(error).lower()
+
+        if "ratelimit" in error_message or "rate limit" in error_message or "429" in error_message:
+            return {
+                "response": "CareerGuide AI is temporarily busy due to high demand. Please try again in a little while."
+            }
+
         return {
-            "response": (
-                "Sorry, I couldn't process your request right now."
-            )
+           "response": "Sorry, I couldn't process your request right now. Please try again."
         }
