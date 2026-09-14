@@ -1,4 +1,3 @@
-```python
 import os
 import json
 from dataclasses import dataclass
@@ -835,6 +834,3 @@ if __name__ == "__main__":
             print("ERROR:")
             print(error)
             print()
-```
-
-The important change is that `user_id` now travels through `UserContext`, and the profile/session are selected from that ID. The SDK's context mechanism is specifically designed for passing application dependencies into tools without exposing them to the model.

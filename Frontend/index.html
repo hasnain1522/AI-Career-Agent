@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+
+<html lang="en">
+
+<head>
+
+    <meta charset="UTF-8">
+
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0"
+    >
+
+    <title>CareerGuide AI</title>
+
+    <link
+        rel="stylesheet"
+        href="/frontend/style.css"
+    >
+
+</head>
+
+
+<body>
+
+    <div class="app">
+
+        <!-- SIDEBAR -->
+
+        <aside class="sidebar">
+
+            <div class="brand">
+
+                <div class="logo">
+                    CG
+                </div>
+
+                <div>
+
+                    <h1>CareerGuide AI</h1>
+
+                    <p>
+                        Your AI Career Companion
+                    </p>
+
+                </div>
+
+            </div>
+
+
+            <div class="sidebar-section">
+
+                <h3>Explore</h3>
+
+                <button
+                    onclick="sendSuggestion('Help me choose a career path')"
+                >
+                    🎯 Career
+                </button>
+
+                <button
+                    onclick="sendSuggestion('Help me prepare for a job')"
+                >
+                    💼 Jobs
+                </button>
+
+                <button
+                    onclick="sendSuggestion('Help me evaluate a business idea')"
+                >
+                    🚀 Business
+                </button>
+
+                <button
+                    onclick="sendSuggestion('Help me explore careers because I am confused about what to choose')"
+                >
+                    🧭 Explore
+                </button>
+
+            </div>
+
+
+            <div class="sidebar-bottom">
+
+                <p>
+                    CareerGuide AI helps you
+                    make informed decisions.
+                </p>
+
+            </div>
+
+        </aside>
+
+
+        <!-- MAIN -->
+
+        <main class="main">
+
+            <header class="topbar">
+
+                <div>
+
+                    <h2>CareerGuide AI</h2>
+
+                    <span class="status">
+                        ● AI Online
+                    </span>
+
+                </div>
+
+            </header>
+
+
+            <!-- CHAT -->
+
+            <section
+                id="chat"
+                class="chat"
+            >
+
+                <div class="welcome">
+
+                    <div class="welcome-icon">
+                        ✦
+                    </div>
+
+                    <h2>
+                        What are you planning for your future?
+                    </h2>
+
+                    <p>
+                        Ask me about careers, jobs,
+                        skills, learning roadmaps,
+                        internships, or business ideas.
+                    </p>
+
+
+                    <div class="suggestions">
+
+                        <button
+                            onclick="sendSuggestion('How can I become an AI Engineer?')"
+                        >
+                            Become an AI Engineer
+                        </button>
+
+                        <button
+                            onclick="sendSuggestion('What skills are needed for AI jobs?')"
+                        >
+                            AI Job Skills
+                        </button>
+
+                        <button
+                            onclick="sendSuggestion('Help me evaluate my business idea')"
+                        >
+                            Evaluate a Business Idea
+                        </button>
+
+                    </div>
+
+                </div>
+
+            </section>
+
+
+            <!-- INPUT -->
+
+            <div class="input-area">
+
+                <div class="input-box">
+
+                    <textarea
+                        id="message"
+                        placeholder="Ask CareerGuide AI anything..."
+                        rows="1"
+                    ></textarea>
+
+                    <button
+                        id="sendButton"
+                        onclick="sendMessage()"
+                    >
+                        ➤
+                    </button>
+
+                </div>
+
+                <p class="disclaimer">
+                    CareerGuide AI provides guidance and
+                    decision support. Verify important
+                    information independently.
+                </p>
+
+            </div>
+
+        </main>
+
+    </div>
+
+
+    <script src="/frontend/script.js"></script>
+
+</body>
+
+</html>
