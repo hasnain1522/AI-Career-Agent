@@ -8,7 +8,6 @@ from dotenv import load_dotenv
 from agents import (
     Agent,
     Runner,
-    SQLiteSession,
     function_tool,
     WebSearchTool,
     ModelSettings,
@@ -21,19 +20,17 @@ from agents import (
 
 load_dotenv()
 
+from database import (
+    load_profile,
+    save_profile_data,
+    SupabaseSession,
+)
 
 # ============================================================
 # APPLICATION SETTINGS
 # ============================================================
 
 BASE_DIR = Path(__file__).resolve().parent
-
-DATA_DIR = BASE_DIR / "data"
-PROFILE_DIR = DATA_DIR / "profiles"
-SESSION_DB = DATA_DIR / "career_sessions.db"
-
-PROFILE_DIR.mkdir(parents=True, exist_ok=True)
-
 
 # ============================================================
 # USER CONTEXT
@@ -42,76 +39,6 @@ PROFILE_DIR.mkdir(parents=True, exist_ok=True)
 @dataclass
 class UserContext:
     user_id: str
-
-
-# ============================================================
-# PROFILE STORAGE
-# ============================================================
-
-def get_profile_path(user_id: str) -> Path:
-    """
-    Returns the profile file for one specific user.
-    """
-    safe_user_id = "".join(
-        character
-        for character in user_id
-        if character.isalnum() or character in ("-", "_")
-    )
-
-    return PROFILE_DIR / f"{safe_user_id}.json"
-
-
-def load_profile(user_id: str) -> dict:
-    """
-    Load one user's profile.
-    """
-
-    profile_path = get_profile_path(user_id)
-
-    if not profile_path.exists():
-        return {
-            "education": "",
-            "experience_level": "",
-            "skills": [],
-            "target_career": "",
-            "career_goals": [],
-            "available_time": "",
-            "learning_style": "",
-            "constraints": [],
-        }
-
-    try:
-        with open(profile_path, "r", encoding="utf-8") as file:
-            return json.load(file)
-
-    except (json.JSONDecodeError, OSError):
-        return {
-            "education": "",
-            "experience_level": "",
-            "skills": [],
-            "target_career": "",
-            "career_goals": [],
-            "available_time": "",
-            "learning_style": "",
-            "constraints": [],
-        }
-
-
-def save_profile_data(user_id: str, profile: dict) -> None:
-    """
-    Save one user's profile.
-    """
-
-    profile_path = get_profile_path(user_id)
-
-    with open(profile_path, "w", encoding="utf-8") as file:
-        json.dump(
-            profile,
-            file,
-            indent=4,
-            ensure_ascii=False,
-        )
-
 
 # ============================================================
 # PROFILE TOOLS
@@ -751,17 +678,15 @@ Do not guarantee outcomes.
 # SESSION FACTORY
 # ============================================================
 
-def get_user_session(user_id: str) -> SQLiteSession:
+def get_user_session(user_id: str) -> SupabaseSession:
     """
     Create a separate persistent conversation session
-    for each user.
+    for each user using Supabase.
     """
 
-    return SQLiteSession(
-        session_id=f"career_user_{user_id}",
-        db_path=str(SESSION_DB),
+    return SupabaseSession(
+        session_id=user_id,
     )
-
 
 # ============================================================
 # CLI TEST MODE

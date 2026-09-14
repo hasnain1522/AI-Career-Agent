@@ -1,15 +1,23 @@
-import os
+from pathlib import Path
 import uuid
 
 from fastapi import FastAPI
-from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from agents import Runner
 
 from main import agent, UserContext, get_user_session
+
+
+# ============================================================
+# PATHS
+# ============================================================
+
+BASE_DIR = Path(__file__).resolve().parent
+FRONTEND_DIR = BASE_DIR / "Frontend"
 
 
 # ============================================================
@@ -27,12 +35,9 @@ app = FastAPI(
 # FRONTEND
 # ============================================================
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-FRONTEND_DIR = os.path.join(BASE_DIR, "Frontend")
-
 app.mount(
     "/frontend",
-    StaticFiles(directory=FRONTEND_DIR),
+    StaticFiles(directory=str(FRONTEND_DIR)),
     name="frontend",
 )
 
@@ -65,7 +70,6 @@ class ChatRequest(BaseModel):
 
 @app.get("/health")
 def health_check():
-
     return {
         "status": "online",
         "service": "CareerGuide AI",
@@ -73,17 +77,13 @@ def health_check():
 
 
 # ============================================================
-# FRONTEND
+# HOME PAGE
 # ============================================================
 
 @app.get("/")
 def home():
-
     return FileResponse(
-        os.path.join(
-            FRONTEND_DIR,
-            "index.html",
-        )
+        FRONTEND_DIR / "index.html"
     )
 
 
@@ -94,8 +94,11 @@ def home():
 @app.post("/chat")
 def chat(request: ChatRequest):
 
-    if not request.message.strip():
+    # --------------------------------------------------------
+    # Validate message
+    # --------------------------------------------------------
 
+    if not request.message.strip():
         return {
             "response": "Please enter a message."
         }
@@ -103,8 +106,7 @@ def chat(request: ChatRequest):
     try:
 
         # ----------------------------------------------------
-        # Create an anonymous user ID if the frontend
-        # has not provided one yet.
+        # Create anonymous user ID if necessary
         # ----------------------------------------------------
 
         user_id = request.user_id
@@ -140,6 +142,10 @@ def chat(request: ChatRequest):
             session=session,
         )
 
+
+        # ----------------------------------------------------
+        # Return response
+        # ----------------------------------------------------
 
         return {
             "response": result.final_output,
