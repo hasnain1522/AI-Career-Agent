@@ -1,5 +1,8 @@
+```python
 import os
 import json
+from dataclasses import dataclass
+from pathlib import Path
 
 from dotenv import load_dotenv
 
@@ -14,63 +17,129 @@ from agents import (
     OutputGuardrail,
     GuardrailFunctionOutput,
     RunConfig,
+    RunContextWrapper,
 )
-
 
 load_dotenv()
 
 
 # ============================================================
-# SESSION
+# APPLICATION SETTINGS
 # ============================================================
 
-session = SQLiteSession("career_agent_dev_session")
+BASE_DIR = Path(__file__).resolve().parent
+
+DATA_DIR = BASE_DIR / "data"
+PROFILE_DIR = DATA_DIR / "profiles"
+SESSION_DB = DATA_DIR / "career_sessions.db"
+
+PROFILE_DIR.mkdir(parents=True, exist_ok=True)
 
 
 # ============================================================
-# USER PROFILE
+# USER CONTEXT
 # ============================================================
 
-PROFILE_FILE = "user_profile.json"
+@dataclass
+class UserContext:
+    user_id: str
 
 
-def load_profile():
-    """Load the saved user profile."""
+# ============================================================
+# PROFILE STORAGE
+# ============================================================
 
-    if not os.path.exists(PROFILE_FILE):
-        return {}
+def get_profile_path(user_id: str) -> Path:
+    """
+    Returns the profile file for one specific user.
+    """
+    safe_user_id = "".join(
+        character
+        for character in user_id
+        if character.isalnum() or character in ("-", "_")
+    )
+
+    return PROFILE_DIR / f"{safe_user_id}.json"
+
+
+def load_profile(user_id: str) -> dict:
+    """
+    Load one user's profile.
+    """
+
+    profile_path = get_profile_path(user_id)
+
+    if not profile_path.exists():
+        return {
+            "education": "",
+            "experience_level": "",
+            "skills": [],
+            "target_career": "",
+            "career_goals": [],
+            "available_time": "",
+            "learning_style": "",
+            "constraints": [],
+        }
 
     try:
-        with open(PROFILE_FILE, "r", encoding="utf-8") as file:
+        with open(profile_path, "r", encoding="utf-8") as file:
             return json.load(file)
 
     except (json.JSONDecodeError, OSError):
-        return {}
+        return {
+            "education": "",
+            "experience_level": "",
+            "skills": [],
+            "target_career": "",
+            "career_goals": [],
+            "available_time": "",
+            "learning_style": "",
+            "constraints": [],
+        }
 
 
-def save_profile_data(profile):
-    """Save the user profile."""
+def save_profile_data(user_id: str, profile: dict) -> None:
+    """
+    Save one user's profile.
+    """
 
-    with open(PROFILE_FILE, "w", encoding="utf-8") as file:
-        json.dump(profile, file, indent=4)
+    profile_path = get_profile_path(user_id)
 
+    with open(profile_path, "w", encoding="utf-8") as file:
+        json.dump(
+            profile,
+            file,
+            indent=4,
+            ensure_ascii=False,
+        )
+
+
+# ============================================================
+# PROFILE TOOLS
+# ============================================================
 
 @function_tool
-def get_user_profile() -> str:
+def get_user_profile(
+    context: RunContextWrapper[UserContext],
+) -> str:
     """
-    Retrieves the user's saved career-related profile.
+    Get the current user's saved career profile.
+
+    Use this when personalization would improve the answer.
     """
 
-    profile = load_profile()
+    profile = load_profile(context.context.user_id)
 
-    if not profile:
-        return "No user profile information has been saved yet."
-
-    return json.dumps(profile, indent=2)
+    return json.dumps(
+        profile,
+        indent=2,
+        ensure_ascii=False,
+    )
 
 
 @function_tool
 def update_user_profile(
+    context: RunContextWrapper[UserContext],
     education: str = "",
     experience_level: str = "",
     skills: str = "",
@@ -81,35 +150,60 @@ def update_user_profile(
     constraints: str = "",
 ) -> str:
     """
-    Updates the user's career-related profile.
+    Update the current user's career profile.
 
-    Only information explicitly provided by the user should
-    be saved.
+    Only update fields for which useful information was provided.
     """
 
-    profile = load_profile()
+    user_id = context.context.user_id
 
-    updates = {
-        "education": education,
-        "experience_level": experience_level,
-        "skills": skills,
-        "target_career": target_career,
-        "career_goals": career_goals,
-        "available_time": available_time,
-        "learning_style": learning_style,
-        "constraints": constraints,
-    }
+    profile = load_profile(user_id)
 
-    for key, value in updates.items():
+    if education.strip():
+        profile["education"] = education.strip()
 
-        if value and value.strip():
-            profile[key] = value.strip()
+    if experience_level.strip():
+        profile["experience_level"] = experience_level.strip()
 
-    save_profile_data(profile)
+    if skills.strip():
+        profile["skills"] = [
+            item.strip()
+            for item in skills.split(",")
+            if item.strip()
+        ]
 
-    return (
-        "User profile updated successfully.\n\n"
-        + json.dumps(profile, indent=2)
+    if target_career.strip():
+        profile["target_career"] = target_career.strip()
+
+    if career_goals.strip():
+        profile["career_goals"] = [
+            item.strip()
+            for item in career_goals.split(",")
+            if item.strip()
+        ]
+
+    if available_time.strip():
+        profile["available_time"] = available_time.strip()
+
+    if learning_style.strip():
+        profile["learning_style"] = learning_style.strip()
+
+    if constraints.strip():
+        profile["constraints"] = [
+            item.strip()
+            for item in constraints.split(",")
+            if item.strip()
+        ]
+
+    save_profile_data(user_id, profile)
+
+    return json.dumps(
+        {
+            "status": "updated",
+            "profile": profile,
+        },
+        indent=2,
+        ensure_ascii=False,
     )
 
 
@@ -118,48 +212,172 @@ def update_user_profile(
 # ============================================================
 
 @function_tool
-def get_career_roadmap(career: str) -> str:
+def get_career_roadmap(
+    career: str,
+    current_level: str = "beginner",
+) -> str:
     """
-    Provides a basic learning roadmap for a specific career.
+    Generate a structured generic roadmap for a career.
+
+    This is a planning tool, not a guarantee of employment.
     """
 
-    if career.lower().strip() == "ai engineer":
-
-        return """
-AI Engineer Roadmap:
-
-1. Python
-2. Data Structures & Algorithms
-3. Mathematics for AI/ML
-4. NumPy, Pandas and Matplotlib
-5. Machine Learning
-6. Deep Learning
-7. Transformers and LLMs
-8. APIs and FastAPI
-9. Docker and deployment
-10. AI projects and portfolio
-"""
-
-    return (
-        f"No predefined roadmap is available for {career}. "
-        "Research the career and create a personalized roadmap instead."
+    return json.dumps(
+        {
+            "career": career,
+            "current_level": current_level,
+            "roadmap": [
+                "Understand the fundamentals",
+                "Learn the core skills",
+                "Build practical projects",
+                "Create a portfolio",
+                "Gain real-world experience",
+                "Prepare for interviews or clients",
+                "Apply for opportunities",
+                "Continuously improve",
+            ],
+        },
+        indent=2,
     )
+
+
+# ============================================================
+# SPECIALIST AGENTS
+# ============================================================
+
+career_specialist = Agent(
+    name="Career Specialist",
+    instructions="""
+You are the Career Specialist inside CareerGuide AI.
+
+Help users with:
+- career selection
+- career changes
+- required skills
+- learning roadmaps
+- education planning
+- projects
+- internships
+- experience building
+- career decision support
+
+Personalize your advice using the user's profile when available.
+
+Do not guarantee employment, salary, or career success.
+
+When current information matters, use web research.
+
+Give practical, structured recommendations.
+""",
+    model_settings=ModelSettings(
+        max_tokens=900,
+        verbosity="low",
+    ),
+    tools=[
+        WebSearchTool(
+            search_context_size="low",
+            external_web_access=True,
+        )
+    ],
+)
+
+
+job_specialist = Agent(
+    name="Job Specialist",
+    instructions="""
+You are the Job Specialist inside CareerGuide AI.
+
+Help users with:
+- target job roles
+- current hiring requirements
+- skill gaps
+- job preparation
+- portfolios
+- resumes
+- interviews
+- internships
+- application strategy
+
+Use current web research when discussing:
+- current hiring requirements
+- current job trends
+- salaries
+- active opportunities
+- current technologies
+
+Do not guarantee hiring outcomes.
+
+Give practical, realistic guidance.
+""",
+    model_settings=ModelSettings(
+        max_tokens=900,
+        verbosity="low",
+    ),
+    tools=[
+        WebSearchTool(
+            search_context_size="low",
+            external_web_access=True,
+        )
+    ],
+)
+
+
+business_specialist = Agent(
+    name="Business Specialist",
+    instructions="""
+You are the Business Specialist inside CareerGuide AI.
+
+Help users with:
+- business ideas
+- customer problems
+- market research
+- competitors
+- value propositions
+- business models
+- costs
+- risks
+- validation
+- launch strategies
+- growth planning
+
+Use web research when current market information is required.
+
+Never claim that a business will definitely succeed.
+
+Separate:
+- facts
+- assumptions
+- recommendations
+
+Encourage practical validation before major financial decisions.
+""",
+    model_settings=ModelSettings(
+        max_tokens=900,
+        verbosity="low",
+    ),
+    tools=[
+        WebSearchTool(
+            search_context_size="low",
+            external_web_access=True,
+        )
+    ],
+)
 
 
 # ============================================================
 # INPUT GUARDRAIL
 # ============================================================
 
-def career_input_guardrail(context, agent, input_data):
-    """
-    Basic deterministic input safety check.
-
-    Blocks obvious attempts to expose the system prompt,
-    API credentials, or internal implementation details.
-    """
-
+def career_input_guardrail(
+    context,
+    agent,
+    input_data,
+):
     if isinstance(input_data, list):
-        text = " ".join(str(item) for item in input_data).lower()
+        text = " ".join(
+            str(item)
+            for item in input_data
+        ).lower()
     else:
         text = str(input_data).lower()
 
@@ -201,14 +419,11 @@ input_guardrail = InputGuardrail(
 # OUTPUT GUARDRAIL
 # ============================================================
 
-def career_output_guardrail(context, agent, output):
-    """
-    Basic output quality check.
-
-    Prevents the agent from presenting certain unsupported
-    certainty statements as if they were guaranteed facts.
-    """
-
+def career_output_guardrail(
+    context,
+    agent,
+    output,
+):
     text = str(output).lower()
 
     dangerous_certainty_patterns = [
@@ -242,300 +457,128 @@ output_guardrail = OutputGuardrail(
 
 
 # ============================================================
-# CAREER SPECIALIST
-# ============================================================
-
-career_specialist = Agent(
-    name="Career Specialist",
-
-    instructions="""
-You are a Career Planning Specialist inside CareerGuide AI.
-
-Help with:
-
-- Career selection
-- Career changes
-- Career paths
-- Required skills
-- Education
-- Learning roadmaps
-- Long-term career planning
-
-Do not make the final decision for the user.
-
-Provide:
-
-1. Relevant facts
-2. Options
-3. Trade-offs
-4. Practical experiments
-5. Recommended next steps
-
-Use the user's profile when available.
-
-If current information is needed, research rather than
-inventing current facts.
-
-Clearly distinguish facts from recommendations.
-""",
-
-    model_settings=ModelSettings(
-        max_tokens=900,
-        verbosity="low",
-    ),
-)
-
-
-# ============================================================
-# JOB SPECIALIST
-# ============================================================
-
-job_specialist = Agent(
-    name="Job Specialist",
-
-    instructions="""
-You are a Job Search and Preparation Specialist inside
-CareerGuide AI.
-
-Help with:
-
-- Job roles
-- Job requirements
-- Skill-gap analysis
-- Resume preparation
-- Portfolio preparation
-- Interview preparation
-- Internship preparation
-- Current hiring trends
-- Current job opportunities
-
-Use the user's profile when available.
-
-For current job information, research before making claims.
-
-Prefer official employer career pages when possible.
-
-Never invent job openings, salaries, requirements,
-or hiring data.
-
-Clearly distinguish verified information from recommendations.
-""",
-
-    model_settings=ModelSettings(
-        max_tokens=900,
-        verbosity="low",
-    ),
-
-    tools=[
-        WebSearchTool(
-            search_context_size="low",
-            external_web_access=True,
-        ),
-    ],
-)
-
-
-# ============================================================
-# BUSINESS SPECIALIST
-# ============================================================
-
-business_specialist = Agent(
-    name="Business Specialist",
-
-    instructions="""
-You are a Business and Entrepreneurship Specialist inside
-CareerGuide AI.
-
-Help users evaluate business ideas.
-
-Analyze:
-
-- Problem
-- Target customer
-- Market
-- Competition
-- Value proposition
-- Business model
-- Costs
-- Risks
-- Validation
-- Launch strategy
-- Growth opportunities
-
-Use the user's profile when useful.
-
-Do not tell users that a business will definitely succeed.
-
-Identify assumptions and recommend small experiments to
-validate the idea before significant investment.
-
-For current market information, research before making claims.
-
-Clearly distinguish verified information, assumptions,
-reasoning, and recommendations.
-""",
-
-    model_settings=ModelSettings(
-        max_tokens=900,
-        verbosity="low",
-    ),
-
-    tools=[
-        WebSearchTool(
-            search_context_size="low",
-            external_web_access=True,
-        ),
-    ],
-)
-
-
-# ============================================================
-# CAREERGUIDE AI
+# MAIN MANAGER AGENT
 # ============================================================
 
 agent = Agent(
     name="CareerGuide AI",
 
     instructions="""
-You are CareerGuide AI, a career guidance and decision-support
-assistant.
+You are CareerGuide AI, an intelligent career and business guidance agent.
 
-Your purpose is to help users make better-informed career,
-job, and business decisions.
+Your job is to help users make better career, job, business, and exploration decisions.
 
 You guide decisions.
-
-You do NOT make important life or career decisions for the user.
-
+You do NOT make important life decisions for the user.
 
 ============================================================
-FOUR MODES
+MODES
 ============================================================
 
-1. CAREER MODE
+You support four main modes:
 
-Help users with:
+1. Career Mode
+2. Job Mode
+3. Business Mode
+4. Exploration Mode
 
-- Choosing a career
-- Changing careers
-- Career paths
-- Required skills
-- Education
-- Learning roadmaps
-- Projects
-- Internships
-- Long-term planning
+Identify the appropriate mode from the user's request.
 
-
-2. JOB MODE
-
-Help users with:
-
-- Target jobs
-- Job requirements
-- Skill gaps
-- Learning plans
-- Resume preparation
-- Portfolio preparation
-- Interviews
-- Internships
-- Applications
-- Current hiring information
-
-
-3. BUSINESS MODE
-
-Help users with:
-
-- Business ideas
-- Problems and customers
-- Market research
-- Competitors
-- Value propositions
-- Business models
-- Costs
-- Risks
-- Validation
-- Launch
-- Growth
-
-
-4. EXPLORATION MODE
-
-Help users who are unsure about their direction.
-
-Explore:
-
-- Interests
-- Strengths
-- Education
-- Experience
-- Work style
-- Goals
-- Income expectations
-- Time available
-- Risk tolerance
-- Constraints
-
-Then compare realistic options.
-
-Never force the user into one career.
-
+If the user's goal is unclear, ask a short clarifying question.
 
 ============================================================
-MODE SELECTION
+CAREER MODE
 ============================================================
 
-Determine the appropriate mode from the user's request.
+Help with:
+- choosing a career
+- changing careers
+- required skills
+- education
+- learning roadmap
+- projects
+- internships
+- experience
+- interview preparation
+- long-term development
 
-If the mode is unclear and choosing a mode would materially
-change the answer, ask a short clarifying question.
+============================================================
+JOB MODE
+============================================================
 
-Do not unnecessarily ask the user to choose a mode when
-their request is already clear.
+Help with:
+- target job roles
+- current requirements
+- skill gaps
+- learning plans
+- portfolios
+- resumes
+- interviews
+- applications
+- internships
+- current hiring trends
 
+============================================================
+BUSINESS MODE
+============================================================
+
+Help with:
+- business ideas
+- customer problems
+- market research
+- competitors
+- value proposition
+- business models
+- costs
+- risks
+- validation
+- launch
+- growth
+
+============================================================
+EXPLORATION MODE
+============================================================
+
+When users are unsure what path to choose:
+
+Consider:
+- interests
+- strengths
+- education
+- current skills
+- work style
+- income expectations
+- available time
+- risk tolerance
+- goals
+
+Compare realistic options.
+
+Do not force a single answer.
 
 ============================================================
 USER PROFILE
 ============================================================
 
-You have access to a persistent career-related user profile.
+Use get_user_profile when personalization would improve the answer.
 
-Use get_user_profile when existing profile information
-would improve the answer.
+If the user provides important long-term career information, use update_user_profile.
 
-Use update_user_profile when the user provides useful new
-career-related information.
-
-Do NOT ask for every profile field at once.
-
-Only ask for information relevant to the user's current goal.
-
-Never assume missing information.
-
-If information conflicts with the user's latest message,
-prioritize the user's latest explicit information.
-
+Do not repeatedly ask for information already stored in the user's profile.
 
 ============================================================
 PERSONALIZATION
 ============================================================
 
-When useful, personalize recommendations using known profile
-information.
-
-Consider:
-
-- Current education
-- Existing skills
-- Experience level
-- Target career
-- Available time
-- Learning preferences
-- Career goals
-
-Do not pretend to know information that is not in the profile.
-
+Adapt recommendations to:
+- education
+- experience
+- skills
+- target career
+- goals
+- available time
+- learning style
+- constraints
 
 ============================================================
 DECISION SUPPORT
@@ -545,194 +588,155 @@ For important decisions:
 
 1. Explain the reasoning.
 2. Separate facts from recommendations.
-3. Show realistic alternatives.
-4. Explain trade-offs.
-5. Suggest practical ways to validate the decision.
-6. Encourage verification.
-7. Adapt recommendations if circumstances differ.
+3. Mention uncertainty when appropriate.
+4. Encourage research or verification.
+5. Suggest practical validation steps.
+6. Adapt if the user's circumstances differ.
 
-Never guarantee outcomes.
-
-Never say:
-
-"You should definitely do this because I said so."
-
-Prefer:
-
-"Based on the available information, this appears to be
-a reasonable option because..."
-
+Never encourage blind dependence on the AI.
 
 ============================================================
 RESEARCH
 ============================================================
 
-Do not research every simple conceptual question.
-
-Research when fresh information materially matters.
+Use web research when information is time-sensitive.
 
 Examples:
+- current jobs
+- internships
+- salaries
+- hiring requirements
+- current technologies
+- certifications
+- regulations
+- current market conditions
+- current business trends
 
-- Current jobs
-- Current internships
-- Current salaries
-- Hiring trends
-- Current technology trends
-- Current certifications
-- Current employer requirements
-- Regulations
-- Current market information
+Do not perform unnecessary research for simple conceptual questions.
 
+When researching:
 
-When research is needed:
+1. Gather information from multiple reliable sources when practical.
+2. Compare important information.
+3. Identify uncertainty or conflicting information.
+4. Reason about what it means for the user.
+5. Provide personalized guidance.
+6. Explain how the user can verify important claims.
 
-1. Search for relevant information.
-2. Prefer primary or authoritative sources.
-3. Use multiple sources for important claims when practical.
-4. Compare information.
-5. Identify conflicts or uncertainty.
-6. Reason from the evidence.
-7. Personalize the answer.
-8. Explain how the user can verify important information.
-
+Do not act as a simple Google wrapper.
 
 ============================================================
 TRUSTWORTHY ANSWERS
 ============================================================
 
-Never invent:
-
-- Jobs
-- Internships
-- Salaries
-- Statistics
-- Company requirements
-- Certification requirements
-- Market statistics
-- Sources
-- Citations
-
-Do not treat search snippets as sufficient evidence.
-
 Clearly distinguish:
 
-VERIFIED FACT
+FACT:
 Information supported by reliable evidence.
 
-REPORTED INFORMATION
-Information reported by a source.
+RECOMMENDATION:
+Your reasoning about what the user could consider doing.
 
-REASONING
-Your analysis based on available information.
+UNCERTAINTY:
+Information that may vary or cannot be confidently established.
 
-RECOMMENDATION
-A suggested course of action.
-
-If sources disagree, explain the disagreement.
-
-For current jobs and internships, prefer official employer
-career pages when possible.
-
-For important education, financial, legal, or regulatory
-decisions, encourage verification through authoritative sources.
-
-If you cannot verify something reliably, say:
-
-"I couldn't verify this reliably."
-
-
-============================================================
-USER INDEPENDENCE
-============================================================
-
-Do not encourage blind dependence on CareerGuide AI.
-
-Encourage users to:
-
-- Research independently
-- Check official sources
-- Test ideas through practical experiments
-- Talk to relevant professionals
-- Compare alternatives
-- Verify important claims
-
+Never invent facts, sources, jobs, salaries, statistics, or opportunities.
 
 ============================================================
 SPECIALISTS
 ============================================================
 
-Use specialist agents when their expertise would improve
-the answer.
+Use specialist agents when their expertise improves the answer.
 
 Career Specialist:
-
-Use for career planning, exploration, paths, skills,
-education, and long-term career decisions.
+Career planning and career development.
 
 Job Specialist:
-
-Use for jobs, internships, requirements, skill gaps,
-resumes, portfolios, interviews, and hiring trends.
+Jobs, hiring, applications, interviews, and current employment requirements.
 
 Business Specialist:
+Business ideas, validation, market research, and business strategy.
 
-Use for business ideas, entrepreneurship, customers,
-competition, business models, validation, risks, and growth.
-
-You remain responsible for the final user-facing answer.
-
-Do not blindly copy specialist output.
-
-Review it, combine it with relevant context, and personalize it.
-
+You remain the final manager and own the user-facing answer.
 
 ============================================================
 ROADMAP TOOL
 ============================================================
 
-Use get_career_roadmap when a predefined roadmap is useful.
-
-If the tool does not contain a roadmap for the requested career,
-research the career when current information is important and
-create a personalized roadmap.
-
+Use get_career_roadmap when a structured career roadmap is useful.
 
 ============================================================
 ANSWER STYLE
 ============================================================
 
 Be:
+- clear
+- practical
+- structured
+- honest
+- personalized
+- concise when possible
 
-- Clear
-- Practical
-- Structured
-- Honest
-- Concise when the question is simple
-- Detailed when the problem requires it
+Prefer:
+- headings
+- bullet points
+- numbered steps
+- examples
+- action plans
 
 Avoid unnecessary jargon.
-
-Use examples when helpful.
-
-Focus on actionable next steps.
-
 
 ============================================================
 SCOPE
 ============================================================
 
-CareerGuide AI supports legitimate career exploration,
-education, employment, entrepreneurship, and professional
-development.
+You may help with legitimate career, job, business, education, skill-building, professional development, and career exploration questions.
 
-The goal is to help the user understand options and take
-informed action while maintaining their independence.
+Do not guarantee outcomes.
 """,
 
     model_settings=ModelSettings(
-        max_tokens=1200,
+        max_tokens=1400,
         verbosity="low",
     ),
+
+    tools=[
+        get_user_profile,
+        update_user_profile,
+        get_career_roadmap,
+
+        WebSearchTool(
+            search_context_size="medium",
+            external_web_access=True,
+        ),
+
+        career_specialist.as_tool(
+            tool_name="career_specialist",
+            tool_description=(
+                "Use for career planning, career selection, "
+                "skills, education, roadmaps, projects, "
+                "internships and career development."
+            ),
+        ),
+
+        job_specialist.as_tool(
+            tool_name="job_specialist",
+            tool_description=(
+                "Use for job roles, hiring requirements, "
+                "skill gaps, resumes, interviews, internships "
+                "and job applications."
+            ),
+        ),
+
+        business_specialist.as_tool(
+            tool_name="business_specialist",
+            tool_description=(
+                "Use for business ideas, market research, "
+                "competitors, validation, business models, "
+                "costs, risks, launch and growth."
+            ),
+        ),
+    ],
 
     input_guardrails=[
         input_guardrail,
@@ -741,97 +745,96 @@ informed action while maintaining their independence.
     output_guardrails=[
         output_guardrail,
     ],
-
-    tools=[
-        # User profile
-        get_user_profile,
-        update_user_profile,
-
-        # Career roadmap
-        get_career_roadmap,
-
-        # General research
-        WebSearchTool(
-            search_context_size="medium",
-            external_web_access=True,
-        ),
-
-        # Specialist agents
-        career_specialist.as_tool(
-            tool_name="career_specialist",
-            tool_description=(
-                "Use this specialist for career planning, "
-                "career exploration, career paths, skills, "
-                "education, and long-term career decisions."
-            ),
-        ),
-
-        job_specialist.as_tool(
-            tool_name="job_specialist",
-            tool_description=(
-                "Use this specialist for jobs, internships, "
-                "job requirements, skill gaps, resumes, "
-                "portfolios, interviews, and hiring trends."
-            ),
-        ),
-
-        business_specialist.as_tool(
-            tool_name="business_specialist",
-            tool_description=(
-                "Use this specialist for business ideas, "
-                "entrepreneurship, customers, competition, "
-                "business models, validation, risks, and growth."
-            ),
-        ),
-    ],
 )
 
 
 # ============================================================
-# RUN CAREERGUIDE AI
+# SESSION FACTORY
 # ============================================================
 
-while True:
+def get_user_session(user_id: str) -> SQLiteSession:
+    """
+    Create a separate persistent conversation session
+    for each user.
+    """
 
-    user_input = input("\nYou: ")
+    return SQLiteSession(
+        session_id=f"career_user_{user_id}",
+        db_path=str(SESSION_DB),
+    )
 
-    if not user_input.strip():
-        continue
 
-    if any(
-        word in user_input.lower().split()
-        for word in ["bye", "goodbye", "exit", "quit"]
-    ):
-        print(
-            "\nCareerGuide AI: Goodbye! Good luck with your career journey."
-        )
-        break
+# ============================================================
+# CLI TEST MODE
+# ============================================================
 
-    try:
+if __name__ == "__main__":
 
-        result = Runner.run_sync(
-    agent,
-    user_input,
-    session=session,
-    run_config=RunConfig(
-        workflow_name="CareerGuide AI",
-        trace_metadata={
-            "application": "CareerGuide AI",
-            "environment": "development",
-        },
-    ),
-)
+    print("=" * 60)
+    print("CareerGuide AI")
+    print("Multi-user development mode")
+    print("=" * 60)
 
-        print(
-            "\nCareerGuide AI:",
-            result.final_output
-        )
+    user_id = input(
+        "Enter development user ID: "
+    ).strip()
 
-    except Exception as error:
+    if not user_id:
+        user_id = "local_dev_user"
 
-        print(
-            "\nCareerGuide AI: I couldn't process that request."
-        )
+    context = UserContext(
+        user_id=user_id,
+    )
 
-        print("\nTechnical error:")
-        print(error)
+    session = get_user_session(user_id)
+
+    print()
+    print("CareerGuide AI is ready.")
+    print("Type 'exit' to quit.")
+    print()
+
+    while True:
+
+        user_input = input("You: ").strip()
+
+        if user_input.lower() in {
+            "exit",
+            "quit",
+        }:
+            print("Goodbye!")
+            break
+
+        if not user_input:
+            continue
+
+        try:
+
+            result = Runner.run_sync(
+                agent,
+                user_input,
+                context=context,
+                session=session,
+                run_config=RunConfig(
+                    workflow_name="CareerGuide AI",
+                    trace_metadata={
+                        "application": "CareerGuide AI",
+                        "environment": "development",
+                        "user_id": user_id,
+                    },
+                ),
+            )
+
+            print()
+            print("CareerGuide AI:")
+            print(result.final_output)
+            print()
+
+        except Exception as error:
+
+            print()
+            print("ERROR:")
+            print(error)
+            print()
+```
+
+The important change is that `user_id` now travels through `UserContext`, and the profile/session are selected from that ID. The SDK's context mechanism is specifically designed for passing application dependencies into tools without exposing them to the model.
