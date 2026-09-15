@@ -10,7 +10,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from agents import Runner
+from agents import Runner, RunConfig
 
 from main import agent, UserContext, get_user_session
 
@@ -198,12 +198,70 @@ def chat(request: ChatRequest):
             user_id
         )
 
-        result = Runner.run_sync(
-            agent,
-            message,
-            context=context,
-            session=session,
-        )
+        # ---------------------------------------------------------
+        # Primary model: GPT-5.6 Luna
+        # Fallback model: GPT-5.6 Sol
+        # ---------------------------------------------------------
+
+        try:
+            result = Runner.run_sync(
+                agent,
+                message,
+                context=context,
+                session=session,
+                run_config=RunConfig(
+                    workflow_name="CareerGuide AI",
+                    trace_metadata={
+                        "application": "CareerGuide AI",
+                        "environment": "production",
+                        "user_id": user_id,
+                        "model": "gpt-5.6-luna",
+                    },
+                ),
+            )
+
+        except Exception as primary_error:
+
+            error_text = str(primary_error).lower()
+            error_type = primary_error.__class__.__name__.lower()
+
+            # If Luna is rate-limited, switch to Sol.
+            if (
+                "ratelimit" in error_type
+                or "rate limit" in error_text
+                or "429" in error_text
+            ):
+                print(
+                    "Primary model rate-limited. "
+                    "Switching to fallback model."
+                )
+
+                try:
+                    result = Runner.run_sync(
+                        agent,
+                        message,
+                        context=context,
+                        session=session,
+                        run_config=RunConfig(
+                            model="gpt-5.6-sol",
+                            workflow_name="CareerGuide AI",
+                            trace_metadata={
+                                "application": "CareerGuide AI",
+                                "environment": "production",
+                                "user_id": user_id,
+                                "model": "gpt-5.6-sol",
+                                "fallback": "true",
+                            },
+                        ),
+                    )
+                except Exception as fallback_error:
+                    print(
+                        "Fallback model also failed:",
+                        repr(fallback_error),
+                    )
+                    raise
+            else:
+                raise
 
         return {
             "response": result.final_output,
