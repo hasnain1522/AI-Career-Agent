@@ -5,6 +5,8 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+from openai import AsyncOpenAI
+
 from agents import (
     Agent,
     Runner,
@@ -16,9 +18,118 @@ from agents import (
     GuardrailFunctionOutput,
     RunConfig,
     RunContextWrapper,
+    OpenAIChatCompletionsModel,
 )
 
+
 load_dotenv()
+
+# ============================================================
+# OPENROUTER WEB RESEARCH FALLBACK
+# ============================================================
+
+import requests
+
+
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
+
+
+@function_tool
+def web_research(query: str) -> str:
+    """
+    Research current or time-sensitive information using
+    OpenRouter's web search capability.
+
+    Use this when current information is required, such as:
+    jobs, internships, salaries, hiring requirements,
+    technologies, certifications, regulations, markets,
+    and business trends.
+    """
+
+    if not OPENROUTER_API_KEY:
+        return "Web research is temporarily unavailable."
+
+    try:
+        response = requests.post(
+            "https://openrouter.ai/api/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "model": "openrouter/free",
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": (
+                            f"Research the following question using current "
+                            f"web information:\n\n{query}\n\n"
+                            "Use multiple reliable sources when practical. "
+                            "Do not invent facts. "
+                            "Return the researched answer and include "
+                            "source URLs for important claims."
+                        ),
+                    }
+                ],
+                "tools": [
+                    {
+                        "type": "openrouter:web_search",
+                        "parameters": {
+                            "max_results": 5,
+                            "max_uses": 2,
+                        },
+                    }
+                ],
+            },
+            timeout=120,
+        )
+
+        if response.status_code != 200:
+            return (
+                "Web research failed temporarily. "
+                "Do not present unverified current information as fact."
+            )
+
+        data = response.json()
+        message = data["choices"][0]["message"]
+
+        content = message.get("content") or ""
+
+        sources = []
+
+        for annotation in message.get("annotations", []):
+            url = annotation.get("url")
+
+            if url and url not in sources:
+                sources.append(url)
+
+        if sources:
+            content += "\n\nSources:\n"
+            content += "\n".join(
+                f"- {url}"
+                for url in sources
+            )
+
+        return content
+
+    except Exception as error:
+        print("OpenRouter web research error:", repr(error))
+        return (
+            "Web research is temporarily unavailable. "
+            "Do not claim current information without verification."
+        )
+
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
+
+openrouter_client = AsyncOpenAI(
+    api_key=OPENROUTER_API_KEY,
+    base_url="https://openrouter.ai/api/v1",
+)
+
+openrouter_model = OpenAIChatCompletionsModel(
+    model="openrouter/free",
+    openai_client=openrouter_client,
+)
 
 from database import (
     load_profile,
@@ -289,6 +400,122 @@ Encourage practical validation before major financial decisions.
     ],
 )
 
+# ============================================================
+# OPENROUTER FALLBACK SPECIALISTS
+# ============================================================
+
+career_specialist_fallback = Agent(
+    name="Career Specialist",
+    instructions="""
+You are the Career Specialist inside CareerGuide AI.
+
+Help users with:
+- career selection
+- career changes
+- required skills
+- learning roadmaps
+- education planning
+- projects
+- internships
+- experience building
+- career decision support
+
+Personalize your advice using the user's profile when available.
+
+When current information matters, use the web_research tool.
+
+Do not guarantee employment, salary, or career success.
+
+Give practical, structured recommendations.
+""",
+    model=openrouter_model,
+    model_settings=ModelSettings(
+        max_tokens=900,
+        verbosity="low",
+    ),
+    tools=[
+        web_research,
+    ],
+)
+
+
+job_specialist_fallback = Agent(
+    name="Job Specialist",
+    instructions="""
+You are the Job Specialist inside CareerGuide AI.
+
+Help users with:
+- target job roles
+- current hiring requirements
+- skill gaps
+- job preparation
+- portfolios
+- resumes
+- interviews
+- internships
+- application strategy
+
+Use web_research when discussing:
+- current hiring requirements
+- current job trends
+- salaries
+- active opportunities
+- current technologies
+
+Do not guarantee hiring outcomes.
+
+Give practical, realistic guidance.
+""",
+    model=openrouter_model,
+    model_settings=ModelSettings(
+        max_tokens=900,
+        verbosity="low",
+    ),
+    tools=[
+        web_research,
+    ],
+)
+
+
+business_specialist_fallback = Agent(
+    name="Business Specialist",
+    instructions="""
+You are the Business Specialist inside CareerGuide AI.
+
+Help users with:
+- business ideas
+- customer problems
+- market research
+- competitors
+- value propositions
+- business models
+- costs
+- risks
+- validation
+- launch strategies
+- growth planning
+
+Use web_research when current market information is required.
+
+Never claim that a business will definitely succeed.
+
+Separate:
+- facts
+- assumptions
+- recommendations
+
+Encourage practical validation before major financial decisions.
+""",
+    model=openrouter_model,
+    model_settings=ModelSettings(
+        max_tokens=900,
+        verbosity="low",
+    ),
+    tools=[
+        web_research,
+    ],
+)
+
 
 # ============================================================
 # INPUT GUARDRAIL
@@ -381,6 +608,117 @@ output_guardrail = OutputGuardrail(
     name="CareerGuide Output Quality",
 )
 
+# ============================================================
+# OPENROUTER FALLBACK MANAGER AGENT
+# ============================================================
+
+openrouter_agent = Agent(
+    name="CareerGuide AI Fallback Manager",
+    instructions="""
+You are CareerGuide AI, an AI career and business guidance manager.
+
+Your job is to help users make informed decisions about:
+- careers
+- jobs
+- skills
+- learning roadmaps
+- internships
+- projects
+- resumes
+- interviews
+- businesses
+- entrepreneurship
+- career exploration
+
+You guide decisions; you do not make decisions for the user.
+
+IMPORTANT RULES:
+
+1. PERSONALIZATION
+Use the user's profile and conversation history when available.
+
+2. RESEARCH
+When information may have changed recently, use the web_research tool.
+
+Examples:
+- current job requirements
+- salaries
+- internships
+- hiring trends
+- technology trends
+- certifications
+- business markets
+- competitors
+- regulations
+- current opportunities
+
+Do not pretend that old knowledge is current.
+
+3. SOURCES
+When you use current web research:
+- distinguish facts from recommendations
+- mention important sources when appropriate
+- do not invent sources or URLs
+- acknowledge uncertainty when sources disagree
+
+4. SPECIALISTS
+Use the specialist agents when their expertise is useful:
+
+- Career Specialist → career planning and career paths
+- Job Specialist → jobs, hiring, resumes, interviews and applications
+- Business Specialist → business ideas, markets, competitors and validation
+
+5. DECISION SUPPORT
+For important decisions:
+- explain the reasoning
+- show relevant trade-offs
+- consider the user's circumstances
+- suggest practical validation or research
+- never guarantee success, employment, salary or business results
+
+6. RESPONSE STYLE
+Be practical, structured and clear.
+
+Prefer:
+- short explanations
+- bullet points
+- step-by-step plans
+- actionable next steps
+
+Do not overwhelm the user unnecessarily.
+
+7. GENERAL QUESTIONS
+Answer normal educational or conceptual questions directly.
+Do not perform web research when current information is not necessary.
+
+8. SAFETY
+Do not provide illegal or dangerous guidance.
+For financial, legal, medical or other high-stakes topics, clearly encourage verification with an appropriate professional or authoritative source.
+""",
+    model=openrouter_model,
+    model_settings=ModelSettings(
+        max_tokens=1400,
+        verbosity="low",
+    ),
+    tools=[
+        get_user_profile,
+        update_user_profile,
+        get_career_roadmap,
+        web_research,
+        career_specialist_fallback.as_tool(
+            tool_name="career_specialist",
+            tool_description="Use for detailed career planning, career paths, skills, education and career roadmaps.",
+        ),
+        job_specialist_fallback.as_tool(
+            tool_name="job_specialist",
+            tool_description="Use for detailed job preparation, hiring requirements, resumes, interviews and applications.",
+        ),
+        business_specialist_fallback.as_tool(
+            tool_name="business_specialist",
+            tool_description="Use for business ideas, market research, competitors, validation and business planning.",
+        ),
+    ],
+)
 
 # ============================================================
 # MAIN MANAGER AGENT
@@ -714,22 +1052,58 @@ if __name__ == "__main__":
 
     print()
     print("CareerGuide AI is ready.")
-    print("Type 'exit' to quit.")
+    print("Type 'exit' or 'quit' to quit.")
     print()
 
     while True:
 
         user_input = input("You: ").strip()
 
-        if user_input.lower() in {
-            "exit",
-            "quit",
-        }:
-            print("Goodbye!")
-            break
-
         if not user_input:
             continue
+
+        normalized_input = " ".join(
+            user_input.lower().split()
+        )
+
+        # ---------------------------------------------------------
+        # Instant exit — ZERO API CALL
+        # ---------------------------------------------------------
+
+        if normalized_input in {
+            "exit",
+            "quit",
+            "bye",
+            "goodbye",
+        }:
+            print()
+            print("CareerGuide AI:")
+            print("Goodbye! 👋")
+            print()
+            break
+
+        # ---------------------------------------------------------
+        # Instant greeting — ZERO API CALL
+        # ---------------------------------------------------------
+
+        instant_responses = {
+            "hi": "Hello! 👋 I'm CareerGuide AI. What are you planning for your career?",
+            "hello": "Hello! 👋 I'm CareerGuide AI. How can I help with your career, job, or business goals?",
+            "hey": "Hey! 👋 CareerGuide AI here. What would you like to explore?",
+            "hii": "Hi! 👋 What career, job, or business goal are you working on?",
+            "hiii": "Hey! 👋 What are you planning for your future?",
+        }
+
+        if normalized_input in instant_responses:
+            print()
+            print("CareerGuide AI:")
+            print(instant_responses[normalized_input])
+            print()
+            continue
+
+        # ---------------------------------------------------------
+        # Actual CareerGuide Agent
+        # ---------------------------------------------------------
 
         try:
 

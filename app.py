@@ -12,7 +12,13 @@ from pydantic import BaseModel, Field
 
 from agents import Runner, RunConfig
 
-from main import agent, UserContext, get_user_session
+from main import (
+    agent,
+    openrouter_agent,
+    UserContext,
+    get_user_session,
+    openrouter_model,
+)
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -58,6 +64,27 @@ class ChatRequest(BaseModel):
     message: str = Field(..., min_length=1, max_length=4000)
     user_id: str | None = Field(default=None, max_length=100)
 
+# ============================================================
+# INSTANT RESPONSES — NO AI / NO API CALL
+# ============================================================
+
+INSTANT_RESPONSES = {
+    "hi": "Hello! 👋 I'm CareerGuide AI. What are you planning for your career?",
+    "hello": "Hello! 👋 I'm CareerGuide AI. How can I help with your career, job, or business goals?",
+    "hey": "Hey! 👋 CareerGuide AI here. What would you like to explore?",
+    "hii": "Hi! 👋 What career, job, or business goal are you working on?",
+    "hiii": "Hey! 👋 What are you planning for your future?",
+    "good morning": "Good morning! ☀️ What career or professional goal can I help you with?",
+    "good afternoon": "Good afternoon! 👋 What would you like to work on?",
+    "good evening": "Good evening! 👋 Ready to work on your career or business goals?",
+}
+
+EXIT_RESPONSES = {
+    "exit",
+    "quit",
+    "bye",
+    "goodbye",
+}
 
 # ---------------------------------------------------------
 # Basic application-level rate limiting
@@ -168,6 +195,43 @@ def chat(request: ChatRequest):
             "response": "Please enter a message."
         }
 
+    normalized_message = " ".join(
+    message.lower().split()
+    )
+
+    # ---------------------------------------------------------
+    # Instant responses — ZERO API CALL
+    # ---------------------------------------------------------
+
+    instant_responses = {
+        "hi": "Hello! 👋 I'm CareerGuide AI. What are you planning for your career?",
+        "hello": "Hello! 👋 I'm CareerGuide AI. How can I help with your career, job, or business goals?",
+        "hey": "Hey! 👋 CareerGuide AI here. What would you like to explore?",
+        "hii": "Hi! 👋 What career, job, or business goal are you working on?",
+        "hiii": "Hey! 👋 What are you planning for your future?",
+    }
+
+    if normalized_message in instant_responses:
+        return {
+            "response": instant_responses[normalized_message],
+            "user_id": request.user_id or str(uuid.uuid4()),
+        }
+
+    # ---------------------------------------------------------
+    # Instant exit — ZERO API CALL
+    # ---------------------------------------------------------
+
+    if normalized_message in {
+        "exit",
+        "quit",
+        "bye",
+        "goodbye",
+    }:
+        return {
+            "response": "Goodbye! 👋 Your CareerGuide session is still saved. Come back whenever you're ready.",
+            "user_id": request.user_id or str(uuid.uuid4()),
+        }
+
     # Generate a server-side user ID when the client does not
     # provide one.
     user_id = (
@@ -237,28 +301,31 @@ def chat(request: ChatRequest):
                 )
 
                 try:
+
                     result = Runner.run_sync(
-                        agent,
+                        openrouter_agent,
                         message,
                         context=context,
                         session=session,
                         run_config=RunConfig(
-                            model="gpt-5.6-sol",
                             workflow_name="CareerGuide AI",
                             trace_metadata={
                                 "application": "CareerGuide AI",
                                 "environment": "production",
                                 "user_id": user_id,
-                                "model": "gpt-5.6-sol",
+                                "model": "openrouter/free",
                                 "fallback": "true",
                             },
                         ),
                     )
+
                 except Exception as fallback_error:
+
                     print(
                         "Fallback model also failed:",
                         repr(fallback_error),
                     )
+
                     raise
             else:
                 raise
