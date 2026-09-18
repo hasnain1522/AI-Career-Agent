@@ -307,3 +307,10 @@ textarea {
     }
 
 }
+.site-footer {
+    text-align: center;
+    padding: 20px;
+    margin-top: 30px;
+    font-size: 13px;
+    opacity: 0.7;
+}
