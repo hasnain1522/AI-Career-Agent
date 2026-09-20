@@ -182,3 +182,22 @@ messageInput.addEventListener(
 
     }
 );
+// ============================================================
+// MOBILE MENU
+// ============================================================
+
+function toggleMobileMenu() {
+
+    const sidebar = document.querySelector(".sidebar");
+    const menuButton = document.getElementById("menuButton");
+
+    sidebar.classList.toggle("open");
+
+    if (sidebar.classList.contains("open")) {
+        menuButton.textContent = "✕";
+        menuButton.setAttribute("aria-label", "Close menu");
+    } else {
+        menuButton.textContent = "☰";
+        menuButton.setAttribute("aria-label", "Open menu");
+    }
+}
