@@ -303,21 +303,20 @@ def chat(request: ChatRequest):
                 try:
 
                     result = Runner.run_sync(
-                        openrouter_agent,
-                        message,
-                        context=context,
-                        session=session,
-                        run_config=RunConfig(
-                            workflow_name="CareerGuide AI",
-                            trace_metadata={
-                                "application": "CareerGuide AI",
-                                "environment": "production",
-                                "user_id": user_id,
-                                "model": "openrouter/free",
-                                "fallback": "true",
-                            },
-                        ),
-                    )
+    openrouter_agent,
+    message,
+    context=context,
+    run_config=RunConfig(
+        workflow_name="CareerGuide AI",
+        trace_metadata={
+            "application": "CareerGuide AI",
+            "environment": "production",
+            "user_id": user_id,
+            "model": "openrouter/free",
+            "fallback": "true",
+        },
+    ),
+)
 
                 except Exception as fallback_error:
 
